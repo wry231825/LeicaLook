@@ -19,6 +19,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.exifinterface.media.ExifInterface
+import jp.co.cyberagent.android.gpuimage.GPUImage.ScaleType
 import jp.co.cyberagent.android.gpuimage.GPUImageView
 import jp.co.cyberagent.android.gpuimage.filter.GPUImageFilter
 import kotlinx.coroutines.CoroutineScope
@@ -50,6 +51,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         gpuImageView = findViewById(R.id.gpuImageView_preview)
+        // 核心修复1：在这里用代码强制图片居中且完整显示
+        gpuImageView.setScaleType(ScaleType.CENTER_INSIDE)
+
         spinnerLut = findViewById(R.id.spinner_lut)
         seekBarIntensity = findViewById(R.id.seekBar_intensity)
         tvFileFormat = findViewById(R.id.tv_file_format)
@@ -98,7 +102,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 
                 withContext(Dispatchers.Main) {
-                    // 彻底清理上一张图片的滤镜和内存，防止重叠和比例失调
+                    // 核心修复2：彻底清理上一张图片的滤镜和内存，防止两张图重叠
                     activeFilter = null
                     gpuImageView.filter = GPUImageFilter()
                     originalBitmap?.recycle() 
@@ -106,7 +110,6 @@ class MainActivity : AppCompatActivity() {
                     originalBitmap = newBitmap
                     gpuImageView.setImage(originalBitmap)
                     
-                    // 重置控件状态
                     spinnerLut.setSelection(0)
                     seekBarIntensity.progress = 100
                     updatePreview() 
@@ -150,7 +153,6 @@ class MainActivity : AppCompatActivity() {
                 processedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
             }
 
-            // 拷贝 EXIF 并更新时间为当前时间
             copyAllExifAndUpdateTime(sourceUri, tempFile.absolutePath)
 
             val fileName = "LeicaLook_${System.currentTimeMillis()}.jpg"
@@ -175,7 +177,7 @@ class MainActivity : AppCompatActivity() {
                 values.put(MediaStore.Images.Media.IS_PENDING, 0)
                 contentResolver.update(imageUri, values, null, null)
 
-                // 强制媒体扫描器立刻扫描这个新文件，让相册立刻显示
+                // 核心修复3：强制媒体扫描器立刻扫描新文件，让系统相册马上显示
                 val projection = arrayOf(MediaStore.Images.Media.DATA)
                 val cursor = contentResolver.query(imageUri, projection, null, null, null)
                 if (cursor != null && cursor.moveToFirst()) {
@@ -200,7 +202,6 @@ class MainActivity : AppCompatActivity() {
                 val oldExif = ExifInterface(inputStream)
                 val newExif = ExifInterface(destPath)
 
-                // 1. 先暴力拷贝所有原有信息（保留光圈、焦距、厂商数据等）
                 val fields = ExifInterface::class.java.fields
                 for (field in fields) {
                     if (field.name.startsWith("TAG_")) {
@@ -216,7 +217,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                // 2. 强制覆盖时间信息为当前设备时间 (这是解决相册不显示最新照片的核心)
+                // 核心修复4：强制覆盖时间信息为当前设备时间，防止照片沉底到老时间线
                 val currentTime = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.getDefault()).format(Date())
                 newExif.setAttribute(ExifInterface.TAG_DATETIME, currentTime)
                 newExif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, currentTime)
