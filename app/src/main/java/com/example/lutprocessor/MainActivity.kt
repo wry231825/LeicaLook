@@ -134,4 +134,98 @@ class MainActivity : AppCompatActivity() {
             }
             gpuImageView.filter = activeFilter
         }
-        gpuImageView
+        gpuImageView.requestRender() 
+    }
+
+    private fun saveToGallery(sourceUri: Uri) {
+        Toast.makeText(this, "正在处理并保存至相册...", Toast.LENGTH_SHORT).show()
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            if (originalBitmap == null) return@launch
+
+            val processedBitmap = gpuImageView.gpuImage.bitmapWithFilterApplied
+
+            val tempFile = File(cacheDir, "temp_export.jpg")
+            FileOutputStream(tempFile).use { out ->
+                processedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, out)
+            }
+
+            // 拷贝 EXIF 并更新时间为当前时间
+            copyAllExifAndUpdateTime(sourceUri, tempFile.absolutePath)
+
+            val fileName = "LeicaLook_${System.currentTimeMillis()}.jpg"
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/LeicaLook")
+                put(MediaStore.Images.Media.IS_PENDING, 1) 
+            }
+
+            val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val imageUri = contentResolver.insert(collection, values)
+
+            if (imageUri != null) {
+                contentResolver.openOutputStream(imageUri).use { out ->
+                    FileInputStream(tempFile).use { input ->
+                        input.copyTo(out!!) 
+                    }
+                }
+                
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                contentResolver.update(imageUri, values, null, null)
+
+                // 强制媒体扫描器立刻扫描这个新文件，让相册立刻显示
+                val projection = arrayOf(MediaStore.Images.Media.DATA)
+                val cursor = contentResolver.query(imageUri, projection, null, null, null)
+                if (cursor != null && cursor.moveToFirst()) {
+                    val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
+                    val absoluteFilePath = cursor.getString(dataColumn)
+                    MediaScannerConnection.scanFile(this@MainActivity, arrayOf(absoluteFilePath), arrayOf("image/jpeg"), null)
+                    cursor.close()
+                }
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "成功！请打开相册查看最新照片", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun copyAllExifAndUpdateTime(sourceUri: Uri, destPath: String) {
+        var inputStream: InputStream? = null
+        try {
+            inputStream = contentResolver.openInputStream(sourceUri)
+            if (inputStream != null) {
+                val oldExif = ExifInterface(inputStream)
+                val newExif = ExifInterface(destPath)
+
+                // 1. 先暴力拷贝所有原有信息（保留光圈、焦距、厂商数据等）
+                val fields = ExifInterface::class.java.fields
+                for (field in fields) {
+                    if (field.name.startsWith("TAG_")) {
+                        try {
+                            val tag = field.get(null) as? String
+                            if (tag != null) {
+                                val value = oldExif.getAttribute(tag)
+                                if (value != null) {
+                                    newExif.setAttribute(tag, value)
+                                }
+                            }
+                        } catch (e: Exception) { }
+                    }
+                }
+
+                // 2. 强制覆盖时间信息为当前设备时间 (这是解决相册不显示最新照片的核心)
+                val currentTime = SimpleDateFormat("yyyy:MM:dd HH:mm:ss", Locale.getDefault()).format(Date())
+                newExif.setAttribute(ExifInterface.TAG_DATETIME, currentTime)
+                newExif.setAttribute(ExifInterface.TAG_DATETIME_ORIGINAL, currentTime)
+                newExif.setAttribute(ExifInterface.TAG_DATETIME_DIGITIZED, currentTime)
+                
+                newExif.saveAttributes()
+            }
+        } finally {
+            inputStream?.close()
+        }
+    }
+}
