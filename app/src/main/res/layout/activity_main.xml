@@ -5,12 +5,20 @@
     android:orientation="vertical"
     android:padding="16dp">
 
-    <ImageView
-        android:id="@+id/imageView_preview"
+    <TextView
+        android:id="@+id/tv_file_format"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="未载入图片"
+        android:textColor="#888888"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp"/>
+
+    <jp.co.cyberagent.android.gpuimage.GPUImageView
+        android:id="@+id/gpuImageView_preview"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:scaleType="fitCenter"
         android:layout_marginBottom="16dp"/>
 
     <Spinner
@@ -47,7 +55,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="另存为 JPG"
+            android:text="另存为相册"
             android:layout_marginStart="8dp"/>
     </LinearLayout>
 </LinearLayout>
